@@ -1,0 +1,9 @@
+# Stack used and justified in Table 3.2 of the summer training report.
+# pandas 2.x is the reference line; pandas 3.x also works (the pipeline only
+# uses read_csv/read_excel, concat, dropna, to_datetime and to_json).
+pandas>=2.0
+openpyxl>=3.1
+requests>=2.31
+
+# Verification only (report section 3.11) - install with:
+#   pip install -r requirements-dev.txt
