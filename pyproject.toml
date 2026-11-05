@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fleet-compliance-pipeline"
+version = "1.0.0"
+description = "Automated Fleet Compliance and Expiry Alert Pipeline (Python/pandas backend utility)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Yash Aggarwal" }]
+keywords = ["fleet", "compliance", "pandas", "webhook", "data-pipeline", "legal-tech"]
+dependencies = [
+  "pandas>=2.0",
+  "openpyxl>=3.1",
+  "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4", "ruff>=0.4"]
+
+[project.scripts]
+fleet-compliance = "fleet_compliance.cli:run"
+
+[tool.setuptools.packages.find]
+include = ["fleet_compliance*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "RUF"]
+ignore = ["E501"]
