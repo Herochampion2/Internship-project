@@ -9,7 +9,7 @@ remove files, corrupt dates and disable the network.
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest                     # everything (75 checks, ~1 s)
+python -m pytest                     # everything (76 checks, ~1 s)
 python -m pytest tests/test_sanitization.py -v
 python -m pytest -k "webhook or dispatch" -v
 python -m pytest -q -s                # show the pipeline's own console transcript
@@ -17,6 +17,15 @@ python -m pytest -q -s                # show the pipeline's own console transcri
 
 There is no `pytest.ini` gymnastics to worry about: `pyproject.toml` sets
 `testpaths = ["tests"]` and the root `conftest.py` puts the project on `sys.path`.
+
+CI (`.github/workflows/ci.yml`) runs the same two commands on every push and pull
+request — `ruff check .` and `pytest -q` — across Python 3.10/3.11/3.12 and both
+the pandas 2.x and pandas 3.x lines, plus an end-to-end run with no network and a
+real HTTP round trip against `tools/mock_webhook_server.py`. The pandas matrix
+earned its keep immediately: pandas 3.0 applies `dayfirst=True` to ISO-8601
+strings, which rotated `2026-11-07` to 11 July and moved 14 records across the
+Critical boundary. `parse_expiry_dates` now handles year-first and day-first
+layouts separately, and `test_iso_dates_are_not_rotated_by_dayfirst` pins it.
 
 ## What is covered, and where
 
@@ -27,7 +36,7 @@ There is no `pytest.ini` gymnastics to worry about: `pyproject.toml` sets
 | T-03 | both absent → ingestion failure reported | `test_ingestion.py::test_missing_excel_returns_none`, `test_sanitization.py::test_both_sources_absent_reports_failure`, `test_integration.py::test_both_inputs_missing_aborts_with_exit_code_1` |
 | T-04 | null critical identifiers dropped and counted | `test_sanitization.py::test_null_critical_rows_are_dropped_and_counted` |
 | T-05 | placeholder dates coerced to `NaT`, rows dropped | `test_sanitization.py::test_placeholder_dates_are_dropped` |
-| T-06 | mixed date formats normalised | `test_sanitization.py::test_mixed_date_formats_are_normalised`, `test_dayfirst_resolves_the_indian_convention` |
+| T-06 | mixed date formats normalised | `test_sanitization.py::test_mixed_date_formats_are_normalised`, `test_dayfirst_resolves_the_indian_convention`, `test_iso_dates_are_not_rotated_by_dayfirst` |
 | T-07 | already-expired → negative delta → Critical | `test_logic_engine.py::test_expired_documents_carry_a_negative_delta_and_are_critical` |
 | T-08 | webhook unreachable → batch completes | `test_alerting.py::test_network_error_is_reported_and_batch_continues`, `test_integration.py::test_network_failure_still_writes_both_artefacts` |
 | T-09 | webhook non-200 → batch completes | `test_alerting.py::test_non_200_is_reported_and_batch_continues` |
@@ -44,14 +53,14 @@ Summary by file (the report's Table 3.12 recorded 9 unit / 5 integration /
 | File | Cases | Focus |
 |---|---|---|
 | `test_ingestion.py` | 5 | loaders, absent files, corrupt workbook |
-| `test_sanitization.py` | 13 | the three gates, gate order, schema errors |
+| `test_sanitization.py` | 14 | the three gates, gate order, schema errors |
 | `test_logic_engine.py` | 14 | deltas, inclusive threshold, fail-safe sentinel |
 | `test_serialization.py` | 7 | JSON contract shape, types, failure path |
 | `test_alerting.py` | 13 | append-only log, dispatch matrix, payload |
 | `test_integration.py` | 14 | full `main()` run **and** the induced-failure paths |
 | `test_cli.py` | 7 | flag wiring, exit codes, threshold switch end to end |
 | `test_performance.py` | 2 | per-record cost, near-linear scaling |
-| **Total** | **75** | |
+| **Total** | **76** | |
 
 ## Manual end-to-end verification
 

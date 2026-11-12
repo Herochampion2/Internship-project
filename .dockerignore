@@ -1,0 +1,35 @@
+# Build context exclusions -- keeps the image to what the runtime needs.
+# Without this, `docker build .` would ship the whole checkout (tests, docs,
+# .git history, local artefacts) into the daemon on every build.
+
+.git
+.github
+.gitignore
+.venv
+venv
+env
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Runtime artefacts: generated inside the container (or mounted from the host),
+# never copied in.
+data/
+output/
+*.log
+*.tmp
+
+tests/
+conftest.py
+docs/
+README.md
+LICENSE
+
+Dockerfile
+.dockerignore

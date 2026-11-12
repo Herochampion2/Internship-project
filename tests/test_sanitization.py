@@ -128,6 +128,28 @@ def test_mixed_date_formats_are_normalised():
     ]
 
 
+def test_iso_dates_are_not_rotated_by_dayfirst():
+    """Year-first dates stay put on every supported pandas line.
+
+    Regression: pandas 3.x started applying ``dayfirst`` to ISO-8601 strings,
+    so ``2026-11-07`` came back as 11 July 2026 and 14 records of the
+    verification dataset drifted across the Critical boundary (179 instead of
+    the reported 165). The gate now parses year-first layouts without the flag.
+    """
+    cleaned = pipeline.merge_and_clean(
+        frame(
+            [
+                record(reg="DL-01-AA-0030", expiry="2026-11-07"),
+                record(reg="DL-01-AA-0031", expiry="2026/12/01"),
+            ]
+        ),
+        None,
+    )
+
+    assert cleaned is not None
+    assert list(cleaned["Expiry_Date"]) == ["2026-11-07", "2026-12-01"]
+
+
 def test_dayfirst_resolves_the_indian_convention():
     """01/02/2027 is 1 February in a DD/MM/YYYY register, not 2 January."""
     cleaned = pipeline.merge_and_clean(frame([record(expiry="01/02/2027")]), None)

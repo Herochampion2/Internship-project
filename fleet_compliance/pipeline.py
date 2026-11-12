@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -210,6 +211,35 @@ def load_excel_file(file_path: str) -> pd.DataFrame | None:
 # Module 2 - Sanitization and normalization
 # --------------------------------------------------------------------------- #
 
+#: Year-first layouts: ``2026-11-07``, ``2026/08/10``, ``2026.08.10``, with an
+#: optional time part so genuine Excel date cells pass through unchanged.
+_YEAR_FIRST_DATE = re.compile(r"^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}(?:[ T].*)?$")
+
+
+def parse_expiry_dates(values: pd.Series) -> pd.Series:
+    """Coerce a mixed-format expiry column to ``datetime64`` (``NaT`` if unparseable).
+
+    Two passes are needed because the two conventions cannot share one flag.
+    Day-first values (``15/07/2026``, ``10-Aug-2026``) need ``dayfirst=True``;
+    year-first values are unambiguous and must *not* be rotated by it. pandas
+    3.x applies ``dayfirst`` to year-first strings as well, turning
+    ``2026-11-07`` into 11 July 2026 and ``2026.08.10`` into 8 October 2026, so
+    the reference line (pandas 2.x) and the current line disagree. Parsing each
+    family with its own rule makes the gate behave identically on both.
+
+    Args:
+        values: The raw ``Expiry_Date`` column, as read from either source.
+
+    Returns:
+        A ``datetime64[ns]`` series aligned to ``values``; unparseable entries
+        are ``NaT`` and are rejected by the caller.
+    """
+    text = values.astype("string").str.strip()
+    day_first = pd.to_datetime(text, errors="coerce", dayfirst=True, format="mixed")
+    year_first = pd.to_datetime(text, errors="coerce", format="mixed")
+    year_first_layout = text.str.match(_YEAR_FIRST_DATE).fillna(False).astype(bool)
+    return year_first.where(year_first_layout.to_numpy(), day_first)
+
 
 def merge_and_clean(
     df_csv: pd.DataFrame | None,
@@ -225,8 +255,8 @@ def merge_and_clean(
     1. null gate          -- ``dropna`` on the critical columns;
     2. hygiene gate       -- strip headers/cells, reject empty strings and the
                              ``"nan"`` artefact left behind by coercion;
-    3. date-coercion gate -- ``pd.to_datetime(errors="coerce", dayfirst=True,
-                             format="mixed")`` then re-emit as ``YYYY-MM-DD``.
+    3. date-coercion gate -- ``parse_expiry_dates`` (year-first and day-first
+                             layouts parsed separately) then re-emit as ``YYYY-MM-DD``.
 
     Args:
         df_csv: Raw CSV frame, or ``None`` when that source was unavailable.
@@ -282,12 +312,7 @@ def merge_and_clean(
 
     # -- Gate 3: date normalization ---------------------------------------- #
     rows_entering = len(cleaned)
-    parsed = pd.to_datetime(
-        cleaned["Expiry_Date"],
-        errors="coerce",
-        dayfirst=True,
-        format="mixed",
-    )
+    parsed = parse_expiry_dates(cleaned["Expiry_Date"])
     unparseable = parsed.isna()
     cleaned = cleaned.loc[~unparseable].copy()
     cleaned["Expiry_Date"] = parsed.loc[~unparseable].dt.strftime(DATE_FORMAT)
