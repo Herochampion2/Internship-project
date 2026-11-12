@@ -1,0 +1,161 @@
+name: CI
+
+# Three checks, each tied to something the report actually claims:
+#   lint    -- style/lint under the configuration in pyproject.toml
+#   test    -- the full pytest suite on every supported interpreter, on both
+#              the pandas 2.x reference line and the pandas 3.x current line
+#   webhook -- the real two-process dispatch round trip from docs/TESTING.md,
+#              against tools/mock_webhook_server.py (no network egress)
+#
+# The interpreter/pandas matrix is not decoration: pandas 3.0 changed how
+# dayfirst=True treats ISO-8601 strings, which silently moved 14 records of the
+# verification dataset across the Critical boundary. Running both lines keeps
+# that assumption honest.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Ruff
+        run: python -m ruff check . --output-format=github
+
+  test:
+    name: pytest (${{ matrix.python-version }}, pandas ${{ matrix.pandas }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python-version: "3.10"
+            pandas: "2.x"
+            pandas-spec: "pandas>=2.0,<3.0"
+          - python-version: "3.11"
+            pandas: "2.x"
+            pandas-spec: "pandas>=2.0,<3.0"
+          - python-version: "3.12"
+            pandas: "3.x"
+            pandas-spec: "pandas>=3.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          pip install "${{ matrix.pandas-spec }}"
+
+      - name: Record the resolved dependency versions
+        run: python -c "import sys, pandas; print(sys.version); print('pandas', pandas.__version__)"
+
+      - name: Run the test suite
+        run: python -m pytest -q
+
+      - name: End-to-end run and artefact check (no network)
+        run: |
+          python run_pipeline.py --no-webhook
+          python - <<'PY'
+          import json
+          import pathlib
+
+          records = json.loads(pathlib.Path("output/clean_fleet_data.json").read_text("utf-8"))
+          lines = pathlib.Path("output/high_risk_alerts.txt").read_text("utf-8").splitlines()
+          critical = [entry for entry in records if entry["Compliance_Status"] == "Critical"]
+
+          # The figures the README and Chapter 4 of the report quote.
+          assert len(records) == 1187, f"expected 1,187 records, got {len(records)}"
+          assert len(critical) == 165, f"expected 165 critical, got {len(critical)}"
+          assert len(lines) == 165, f"expected 165 log lines, got {len(lines)}"
+          print(f"1,187 records / {len(critical)} critical / {len(lines)} log lines")
+          PY
+
+      - name: Upload artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: artefacts-py${{ matrix.python-version }}-pandas${{ matrix.pandas }}
+          path: output/
+          if-no-files-found: warn
+          retention-days: 7
+
+  webhook:
+    name: Webhook round trip (real HTTP)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Dispatch to the mock operations endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python tools/mock_webhook_server.py --port 8080 > webhook.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+
+          python - <<'PY'
+          import socket
+          import time
+
+          for _ in range(30):
+              try:
+                  socket.create_connection(("127.0.0.1", 8080), timeout=1).close()
+                  break
+              except OSError:
+                  time.sleep(0.5)
+          else:
+              raise SystemExit("the mock webhook never started listening")
+          PY
+
+          python run_pipeline.py --webhook http://127.0.0.1:8080/v1/compliance/webhook | tee run.log
+
+          sleep 0.5
+          cat webhook.log
+
+          grep -q "Webhook dispatch OK" run.log
+          grep -q "total_critical=165" webhook.log

@@ -1,6 +1,9 @@
 # Stack used and justified in Table 3.2 of the summer training report.
 # pandas 2.x is the reference line; pandas 3.x also works (the pipeline only
-# uses read_csv/read_excel, concat, dropna, to_datetime and to_json).
+# uses read_csv/read_excel, concat, dropna, to_datetime and to_json). Both lines
+# are exercised by CI: pandas 3.0 changed how dayfirst=True treats ISO-8601
+# strings, so the date gate parses year-first and day-first layouts separately
+# (see parse_expiry_dates in pipeline.py).
 pandas>=2.0
 openpyxl>=3.1
 requests>=2.31

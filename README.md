@@ -1,5 +1,7 @@
 # Automated Fleet Compliance and Expiry Alert Pipeline
 
+[![CI](https://github.com/Herochampion2/Internship-project/actions/workflows/ci.yml/badge.svg)](https://github.com/Herochampion2/Internship-project/actions/workflows/ci.yml)
+
 A backend Python utility that stops commercial-fleet documents from lapsing silently.
 It merges a messy automated database dump (`.csv`) with a messy manual operations
 register (`.xlsx`), normalises every expiry date, classifies every document against
@@ -145,6 +147,20 @@ Then look at what it decided:
 head -3 output/high_risk_alerts.txt          # the alert queue the operations team reads
 python -c "import json;d=json.load(open('output/clean_fleet_data.json'));print(len(d));print(d[0])"
 ```
+
+### Container (optional)
+
+```bash
+docker build -t fleet-compliance .
+docker run --rm fleet-compliance                                  # the same demo, inside the image
+docker run --rm -v "$PWD/output:/app/output" fleet-compliance     # …with the artefacts written back out
+```
+
+Dependencies are installed in their own layer so a code-only change rebuilds in
+a second, and the process runs as an unprivileged user (`appuser`, uid 10001)
+with write access to `data/` and `output/` only. The image is a convenience for
+reviewers: this project has **not** run it in a team's deployment pipeline, and
+the compose/registry/secret-management side of containerisation is not claimed.
 
 ---
 
@@ -356,7 +372,7 @@ Phase 1 of the roadmap below.
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest              # 75 checks, ~1 second
+python -m pytest              # 76 checks, ~1 second
 python -m ruff check .        # style/lint (configuration in pyproject.toml)
 ```
 
@@ -382,14 +398,16 @@ Internship-project/
 │   └── __init__.py                    # public API re-exports
 ├── tools/
 │   └── mock_webhook_server.py         # controlled local endpoint for the dispatch tests
-├── tests/                             # 75 unit / integration / induced-failure checks
+├── tests/                             # 76 unit / integration / induced-failure checks
 ├── docs/
 │   ├── ARCHITECTURE.md                # tiers, gates, failure surface, scaling
 │   ├── DATA_CONTRACT.md               # input schema, JSON contract, log and payload
 │   ├── TESTING.md                     # how to run, coverage map, reproducing Table 4.x
 │   └── TRACEABILITY.md                # report section → file/function
+├── .github/workflows/ci.yml           # CI: lint, test matrix, real webhook round trip
 ├── data/                              # your registers (generated on demand, git-ignored)
 ├── output/                            # artefacts (git-ignored)
+├── Dockerfile / .dockerignore         # slim, non-root image running the demo by default
 ├── requirements.txt / requirements-dev.txt / pyproject.toml
 └── README.md
 ```
